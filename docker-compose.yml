@@ -1,0 +1,58 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: pro-whatsapp-postgres
+    environment:
+      POSTGRES_DB: whatsapp_crm
+      POSTGRES_USER: whatsapp
+      POSTGRES_PASSWORD: secret
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U whatsapp -d whatsapp_crm"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: pro-whatsapp-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+
+  soketi:
+    image: quay.io/soketi/soketi:1.6-16-alpine
+    container_name: pro-whatsapp-soketi
+    ports:
+      - "6001:6001"
+      - "9601:9601"
+    environment:
+      SOKETI_DEBUG: "1"
+      SOKETI_DEFAULT_APP_ID: whatsapp-crm
+      SOKETI_DEFAULT_APP_KEY: app-key
+      SOKETI_DEFAULT_APP_SECRET: app-secret
+      SOKETI_DEFAULT_APP_USER_AUTHENTICATION: "false"
+
+  whatsapp-bridge:
+    build:
+      context: ./whatsapp-bridge
+    container_name: pro-whatsapp-bridge
+    ports:
+      - "3001:3001"
+    environment:
+      PORT: 3001
+      BRIDGE_SECRET: change-me-bridge-secret
+      LARAVEL_URL: http://host.docker.internal:8000
+      SESSIONS_DIR: /app/sessions
+    volumes:
+      - bridge_sessions:/app/sessions
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  redis_data:
+  bridge_sessions:

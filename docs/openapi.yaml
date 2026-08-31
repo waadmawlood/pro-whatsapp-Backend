@@ -1,0 +1,2849 @@
+openapi: 3.0.3
+info:
+  title: Pro WhatsApp API
+  version: 1.0.0
+  description: |
+    REST API لنظام إدارة عملاء ومحادثات WhatsApp.
+
+    ## طرق ربط WhatsApp
+    - **web** (افتراضي): جلسة WhatsApp Web عبر جسر Node.js (Baileys) — رقم واحد وعدة موظفين.
+    - **cloud**: Meta WhatsApp Cloud API الرسمي.
+
+    ## جسر WhatsApp Web
+    شغّل خدمة `whatsapp-bridge` واضبط:
+    ```
+    WHATSAPP_BRIDGE_URL=http://127.0.0.1:3001
+    WHATSAPP_BRIDGE_SECRET=shared-secret
+    ```
+
+    ## المصادقة
+    بعد `POST /auth/login` أرسل التوكن في كل طلب:
+    ```
+    Authorization: Bearer {token}
+    ```
+
+    ## اللغة
+    ```
+    Accept-Language: ar
+    Accept-Language: en
+    ```
+
+    ## حدود الطلبات
+    | المسار | الحد |
+    |--------|------|
+    | عام | 120 طلب / دقيقة |
+    | تسجيل الدخول | 5 طلبات / دقيقة |
+    | Webhooks | 180 طلب / دقيقة |
+
+    ## حسابات التجربة
+    | الدور | البريد | كلمة المرور |
+    |--------|--------|-------------|
+    | Admin | admin@example.com | password |
+    | Employee | ahmed@example.com | password |
+  contact:
+    name: Pro WhatsApp
+  license:
+    name: MIT
+
+servers:
+  - url: /api/v1
+    description: API v1
+
+tags:
+  - name: Auth
+    description: تسجيل الدخول والجلسات والملف الشخصي
+  - name: Users
+    description: إدارة الموظفين (Admin)
+  - name: Customers
+    description: إدارة العملاء والملاحظات والوسوم
+  - name: Conversations
+    description: صندوق الوارد وتعيين وإغلاق المحادثات
+  - name: Messages
+    description: إرسال واستقبال الرسائل داخل محادثة
+  - name: Tags
+    description: وسوم العملاء
+  - name: WhatsApp
+    description: ربط أرقام WhatsApp (Web عبر الجسر أو Cloud API)
+  - name: Webhooks
+    description: استقبال أحداث Meta Cloud API وجسر WhatsApp Web
+  - name: Dashboard
+    description: إحصائيات الأدمن
+  - name: Search
+    description: بحث شامل
+  - name: Notifications
+    description: إشعارات داخل النظام
+  - name: Audit
+    description: سجل العمليات
+  - name: Permissions
+    description: قائمة الصلاحيات المتاحة
+  - name: Realtime
+    description: مصادقة قنوات البث
+
+security:
+  - bearerAuth: []
+
+paths:
+  /auth/login:
+    post:
+      tags: [Auth]
+      summary: تسجيل الدخول
+      description: يُرجع توكن مستقل لكل جهاز. يمكن تسجيل الدخول من عدة حواسيب في نفس الوقت.
+      operationId: login
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+            example:
+              email: admin@example.com
+              password: password
+              device_name: office-1
+      responses:
+        '200':
+          description: نجاح
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
+  /auth/logout:
+    post:
+      tags: [Auth]
+      summary: تسجيل الخروج من الجهاز الحالي
+      operationId: logout
+      responses:
+        '200':
+          $ref: '#/components/responses/MessageOk'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+
+  /auth/logout-all:
+    post:
+      tags: [Auth]
+      summary: تسجيل الخروج من كل الأجهزة
+      operationId: logoutAll
+      responses:
+        '200':
+          $ref: '#/components/responses/MessageOk'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+
+  /auth/me:
+    get:
+      tags: [Auth]
+      summary: المستخدم الحالي
+      operationId: me
+      responses:
+        '200':
+          description: بيانات المستخدم مع الأدوار والصلاحيات والشركة
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/User'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+
+  /auth/profile:
+    put:
+      tags: [Auth]
+      summary: تحديث الملف الشخصي
+      operationId: updateProfile
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateProfileRequest'
+      responses:
+        '200':
+          description: الملف بعد التحديث
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/User'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /auth/sessions:
+    get:
+      tags: [Auth]
+      summary: جلسات الأجهزة المتصلة
+      operationId: listSessions
+      responses:
+        '200':
+          description: قائمة التوكنات
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Session'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+
+  /auth/sessions/{token}:
+    delete:
+      tags: [Auth]
+      summary: إلغاء جلسة جهاز
+      operationId: revokeSession
+      parameters:
+        - $ref: '#/components/parameters/TokenId'
+      responses:
+        '200':
+          $ref: '#/components/responses/MessageOk'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+
+  /users:
+    get:
+      tags: [Users]
+      summary: قائمة الموظفين
+      description: يتطلب `users.view` أو `users.manage`.
+      operationId: listUsers
+      parameters:
+        - $ref: '#/components/parameters/Query'
+        - name: role
+          in: query
+          schema:
+            type: string
+            enum: [admin, employee]
+        - $ref: '#/components/parameters/PerPage'
+        - $ref: '#/components/parameters/Page'
+      responses:
+        '200':
+          description: قائمة صفحات
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PaginatedEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/User'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    post:
+      tags: [Users]
+      summary: إضافة موظف
+      description: يتطلب `users.manage`. للموظف يمكن تمرير `permissions` إضافية.
+      operationId: createUser
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StoreUserRequest'
+            example:
+              name: علي
+              email: ali@example.com
+              password: password
+              role: employee
+              locale: ar
+              permissions:
+                - customers.view
+                - messages.send
+      responses:
+        '201':
+          description: تم الإنشاء
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/CreatedEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/User'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /users/{user}:
+    get:
+      tags: [Users]
+      summary: عرض موظف
+      operationId: getUser
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+      responses:
+        '200':
+          description: موظف
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/User'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    put:
+      tags: [Users]
+      summary: تحديث موظف
+      operationId: updateUser
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateUserRequest'
+      responses:
+        '200':
+          description: بعد التحديث
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/User'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+    delete:
+      tags: [Users]
+      summary: حذف موظف
+      description: لا يمكن حذف الحساب الحالي. يحذف التوكنات أيضاً.
+      operationId: deleteUser
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+      responses:
+        '200':
+          $ref: '#/components/responses/MessageOk'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /customers:
+    get:
+      tags: [Customers]
+      summary: قائمة العملاء
+      description: يتطلب `customers.view`.
+      operationId: listCustomers
+      parameters:
+        - $ref: '#/components/parameters/Query'
+        - name: status
+          in: query
+          schema:
+            $ref: '#/components/schemas/CustomerStatus'
+        - name: assigned_user_id
+          in: query
+          schema:
+            type: integer
+        - name: tag_id
+          in: query
+          schema:
+            type: integer
+        - $ref: '#/components/parameters/PerPage'
+        - $ref: '#/components/parameters/Page'
+      responses:
+        '200':
+          description: قائمة صفحات
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PaginatedEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Customer'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    post:
+      tags: [Customers]
+      summary: إضافة عميل
+      description: يتطلب `customers.create`. رقم الهاتف يُطبَّع تلقائياً (أرقام فقط).
+      operationId: createCustomer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StoreCustomerRequest'
+            example:
+              name: سارة علي
+              phone: '+966 55 123 4567'
+              status: new
+              tag_ids: [1, 2]
+      responses:
+        '201':
+          description: تم الإنشاء
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/CreatedEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Customer'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /customers/{customer}:
+    get:
+      tags: [Customers]
+      summary: عرض عميل
+      operationId: getCustomer
+      parameters:
+        - $ref: '#/components/parameters/CustomerId'
+      responses:
+        '200':
+          description: عميل
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Customer'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    put:
+      tags: [Customers]
+      summary: تحديث عميل
+      description: يتطلب `customers.update`.
+      operationId: updateCustomer
+      parameters:
+        - $ref: '#/components/parameters/CustomerId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateCustomerRequest'
+      responses:
+        '200':
+          description: بعد التحديث
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Customer'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+    delete:
+      tags: [Customers]
+      summary: حذف عميل
+      description: يتطلب `customers.delete`.
+      operationId: deleteCustomer
+      parameters:
+        - $ref: '#/components/parameters/CustomerId'
+      responses:
+        '200':
+          $ref: '#/components/responses/MessageOk'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /customers/{customer}/notes:
+    get:
+      tags: [Customers]
+      summary: ملاحظات العميل
+      operationId: listCustomerNotes
+      parameters:
+        - $ref: '#/components/parameters/CustomerId'
+      responses:
+        '200':
+          description: قائمة الملاحظات
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Note'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    post:
+      tags: [Customers]
+      summary: إضافة ملاحظة
+      description: يتطلب `notes.create`.
+      operationId: createCustomerNote
+      parameters:
+        - $ref: '#/components/parameters/CustomerId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StoreNoteRequest'
+            example:
+              body: العميل طلب معاودة الاتصال غداً
+              conversation_id: 12
+      responses:
+        '201':
+          description: تم الإنشاء
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/CreatedEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Note'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /customers/{customer}/tags:
+    post:
+      tags: [Customers]
+      summary: مزامنة وسوم العميل
+      description: يستبدل كل الوسوم بالقائمة المرسلة. يتطلب `customers.update`.
+      operationId: syncCustomerTags
+      parameters:
+        - $ref: '#/components/parameters/CustomerId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [tag_ids]
+              properties:
+                tag_ids:
+                  type: array
+                  items:
+                    type: integer
+            example:
+              tag_ids: [1, 3]
+      responses:
+        '200':
+          description: العميل بعد المزامنة
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Customer'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /conversations:
+    get:
+      tags: [Conversations]
+      summary: صندوق الوارد
+      description: |
+        الموظف يرى محادثاته فقط ما لم يملك `conversations.view_all`.
+      operationId: listConversations
+      parameters:
+        - $ref: '#/components/parameters/Query'
+        - name: status
+          in: query
+          schema:
+            $ref: '#/components/schemas/ConversationStatus'
+        - name: unassigned
+          in: query
+          description: "قيمة true للمحادثات غير المخصصة"
+          schema:
+            type: boolean
+        - name: assigned_user_id
+          in: query
+          schema:
+            type: integer
+        - name: customer_id
+          in: query
+          schema:
+            type: integer
+        - name: link_id
+          in: query
+          description: تصفية حسب المعرف الخارجي للمحادثة
+          schema:
+            type: string
+        - $ref: '#/components/parameters/PerPage'
+        - $ref: '#/components/parameters/Page'
+      responses:
+        '200':
+          description: قائمة المحادثات
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PaginatedEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Conversation'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /conversations/{conversation}:
+    get:
+      tags: [Conversations]
+      summary: فتح محادثة
+      description: بشكل افتراضي يتم تصفير العداد غير المقروء (`mark_read=true`).
+      operationId: getConversation
+      parameters:
+        - $ref: '#/components/parameters/ConversationId'
+        - name: mark_read
+          in: query
+          schema:
+            type: boolean
+            default: true
+      responses:
+        '200':
+          description: المحادثة
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Conversation'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    patch:
+      tags: [Conversations]
+      summary: تحديث محادثة
+      description: |
+        تحديث بيانات المحادثة مثل `link_id`. يتطلب صلاحية عرض المحادثة.
+        أرسل `link_id: null` لإزالة المعرف الخارجي.
+      operationId: updateConversation
+      parameters:
+        - $ref: '#/components/parameters/ConversationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateConversationRequest'
+            example:
+              link_id: ticket-1001
+      responses:
+        '200':
+          description: المحادثة بعد التحديث
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Conversation'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+    delete:
+      tags: [Conversations]
+      summary: حذف محادثة
+      description: يتطلب `conversations.delete`.
+      operationId: deleteConversation
+      parameters:
+        - $ref: '#/components/parameters/ConversationId'
+      responses:
+        '200':
+          $ref: '#/components/responses/MessageOk'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /conversations/{conversation}/messages:
+    get:
+      tags: [Messages]
+      summary: رسائل المحادثة
+      description: الأحدث أولاً. يدعم البحث داخل النص عبر `q`.
+      operationId: listMessages
+      parameters:
+        - $ref: '#/components/parameters/ConversationId'
+        - $ref: '#/components/parameters/Query'
+        - name: per_page
+          in: query
+          schema:
+            type: integer
+            default: 30
+            minimum: 1
+            maximum: 100
+        - $ref: '#/components/parameters/Page'
+      responses:
+        '200':
+          description: قائمة الرسائل
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PaginatedEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Message'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    post:
+      tags: [Messages]
+      summary: إرسال رسالة
+      description: |
+        يتطلب `messages.send`. أرسل JSON للنص أو `multipart/form-data` للوسائط.
+        الحالة الأولية `sending` ثم تُحدَّث عبر الويب هوك إلى sent / delivered / read / failed.
+      operationId: sendMessage
+      parameters:
+        - $ref: '#/components/parameters/ConversationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StoreMessageJsonRequest'
+            example:
+              type: text
+              body: مرحباً، كيف يمكنني مساعدتك؟
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/StoreMessageMultipartRequest'
+      responses:
+        '201':
+          description: تم إنشاء الرسالة وإرسالها للطابور
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/CreatedEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Message'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /conversations/{conversation}/assign:
+    post:
+      tags: [Conversations]
+      summary: تعيين محادثة لموظف
+      description: "يتطلب conversations.assign. أرسل user_id=null لإلغاء التعيين."
+      operationId: assignConversation
+      parameters:
+        - $ref: '#/components/parameters/ConversationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                user_id:
+                  type: integer
+                  nullable: true
+            example:
+              user_id: 2
+      responses:
+        '200':
+          description: بعد التعيين
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Conversation'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /conversations/{conversation}/close:
+    post:
+      tags: [Conversations]
+      summary: إغلاق محادثة
+      description: يتطلب `conversations.close`.
+      operationId: closeConversation
+      parameters:
+        - $ref: '#/components/parameters/ConversationId'
+      responses:
+        '200':
+          description: محادثة مغلقة
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Conversation'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /conversations/{conversation}/reopen:
+    post:
+      tags: [Conversations]
+      summary: إعادة فتح محادثة
+      description: يتطلب `conversations.close`.
+      operationId: reopenConversation
+      parameters:
+        - $ref: '#/components/parameters/ConversationId'
+      responses:
+        '200':
+          description: محادثة مفتوحة
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Conversation'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /tags:
+    get:
+      tags: [Tags]
+      summary: قائمة الوسوم
+      description: يتطلب `tags.view` أو `tags.manage`.
+      operationId: listTags
+      responses:
+        '200':
+          description: كل الوسوم
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Tag'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    post:
+      tags: [Tags]
+      summary: إنشاء وسم
+      description: يتطلب `tags.manage`.
+      operationId: createTag
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StoreTagRequest'
+            example:
+              name: VIP
+              color: '#D97706'
+      responses:
+        '201':
+          description: تم الإنشاء
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/CreatedEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Tag'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /tags/{tag}:
+    put:
+      tags: [Tags]
+      summary: تحديث وسم
+      operationId: updateTag
+      parameters:
+        - $ref: '#/components/parameters/TagId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StoreTagRequest'
+      responses:
+        '200':
+          description: بعد التحديث
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Tag'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags: [Tags]
+      summary: حذف وسم
+      operationId: deleteTag
+      parameters:
+        - $ref: '#/components/parameters/TagId'
+      responses:
+        '200':
+          $ref: '#/components/responses/MessageOk'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /whatsapp-accounts:
+    get:
+      tags: [WhatsApp]
+      summary: أرقام واتساب المرتبطة
+      description: يتطلب `whatsapp.manage`.
+      operationId: listWhatsAppAccounts
+      responses:
+        '200':
+          description: القائمة
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/WhatsAppAccount'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    post:
+      tags: [WhatsApp]
+      summary: ربط رقم واتساب
+      description: |
+        يتطلب `whatsapp.manage`.
+
+        **WhatsApp Web (`connection_type: web`)** — الافتراضي: يكفي `name` فقط. بعد الإنشاء استدعِ
+        `POST /whatsapp-accounts/{id}/bridge/connect` ثم اعرض QR من `/bridge/qr`.
+
+        **Cloud API (`connection_type: cloud`)**: يتطلب `phone_number`, `phone_number_id`, `access_token`.
+        بعد الإنشاء استخدم `webhook_url` و `webhook_verify_token` في Meta Developer.
+      operationId: createWhatsAppAccount
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StoreWhatsAppAccountRequest'
+            examples:
+              web:
+                summary: WhatsApp Web (افتراضي)
+                value:
+                  name: الخط الرئيسي
+                  connection_type: web
+                  is_default: true
+              cloud:
+                summary: Meta Cloud API
+                value:
+                  name: الخط الرئيسي
+                  connection_type: cloud
+                  phone_number: '966500000000'
+                  phone_number_id: '123456789012345'
+                  waba_id: '987654321098765'
+                  access_token: EAAB...
+                  app_secret: your-app-secret
+                  is_default: true
+      responses:
+        '201':
+          description: تم الربط
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/CreatedEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/WhatsAppAccount'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /whatsapp-accounts/{whatsappAccount}:
+    get:
+      tags: [WhatsApp]
+      summary: عرض رقم واتساب
+      operationId: getWhatsAppAccount
+      parameters:
+        - $ref: '#/components/parameters/WhatsAppAccountId'
+      responses:
+        '200':
+          description: الحساب
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/WhatsAppAccount'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    put:
+      tags: [WhatsApp]
+      summary: تحديث رقم واتساب
+      operationId: updateWhatsAppAccount
+      parameters:
+        - $ref: '#/components/parameters/WhatsAppAccountId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateWhatsAppAccountRequest'
+      responses:
+        '200':
+          description: بعد التحديث
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/WhatsAppAccount'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+    delete:
+      tags: [WhatsApp]
+      summary: حذف رقم واتساب
+      operationId: deleteWhatsAppAccount
+      parameters:
+        - $ref: '#/components/parameters/WhatsAppAccountId'
+      responses:
+        '200':
+          $ref: '#/components/responses/MessageOk'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /whatsapp-accounts/{whatsappAccount}/bridge:
+    get:
+      tags: [WhatsApp]
+      summary: حالة ربط WhatsApp Web (للفرونت)
+      description: |
+        يتطلب `whatsapp.manage` و`connection_type: web`.
+
+        **Endpoint موحّد للفرونت** — يُرجع الحالة + QR جاهز للعرض في `<img src={qr_data_url} />`.
+
+        - عند `status=qr` أو `connecting` استخدم `poll_after_ms` للتحديث الدوري.
+        - `?refresh=true` لجلب QR مباشرة من الجسر.
+      operationId: getWhatsAppBridgeState
+      parameters:
+        - $ref: '#/components/parameters/WhatsAppAccountId'
+        - name: refresh
+          in: query
+          schema:
+            type: boolean
+            default: false
+          description: جلب QR مباشرة من الجسر بدل الكاش
+      responses:
+        '200':
+          description: حالة الجسر مع QR
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/WhatsAppBridgeState'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          description: الحساب ليس من نوع web
+
+  /whatsapp-accounts/{whatsappAccount}/bridge/status:
+    get:
+      tags: [WhatsApp]
+      summary: حالة جلسة WhatsApp Web
+      description: |
+        يتطلب `whatsapp.manage` و`connection_type: web`.
+        يستعلم خدمة الجسر عن حالة الاتصال الحالية.
+      operationId: getWhatsAppBridgeStatus
+      parameters:
+        - $ref: '#/components/parameters/WhatsAppAccountId'
+      responses:
+        '200':
+          description: حالة الجسر
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/BridgeSessionStatus'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          description: الحساب ليس من نوع web
+        '503':
+          description: خدمة الجسر غير متاحة
+
+  /whatsapp-accounts/{whatsappAccount}/bridge/qr:
+    get:
+      tags: [WhatsApp]
+      summary: جلب رمز QR للربط
+      description: |
+        يتطلب `whatsapp.manage` و`connection_type: web`.
+        يُرجع QR كـ data URL (`data:image/png;base64,...`) من قاعدة البيانات أو من الجسر مباشرة.
+      operationId: getWhatsAppBridgeQr
+      parameters:
+        - $ref: '#/components/parameters/WhatsAppAccountId'
+      responses:
+        '200':
+          description: رمز QR
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/BridgeQrResponse'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          description: الحساب ليس من نوع web
+        '503':
+          description: خدمة الجسر غير متاحة
+
+  /whatsapp-accounts/{whatsappAccount}/bridge/connect:
+    post:
+      tags: [WhatsApp]
+      summary: بدء جلسة WhatsApp Web
+      description: |
+        يتطلب `whatsapp.manage` و`connection_type: web`.
+        يبدأ جلسة Baileys في الجسر. بعدها استدعِ `/bridge/qr` وامسح الرمز من تطبيق واتساب.
+      operationId: connectWhatsAppBridge
+      parameters:
+        - $ref: '#/components/parameters/WhatsAppAccountId'
+      responses:
+        '200':
+          description: تم بدء الجلسة
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/BridgeConnectResponse'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          description: الحساب ليس من نوع web
+        '503':
+          description: خدمة الجسر غير متاحة
+
+  /whatsapp-accounts/{whatsappAccount}/bridge/disconnect:
+    post:
+      tags: [WhatsApp]
+      summary: قطع جلسة WhatsApp Web
+      description: |
+        يتطلب `whatsapp.manage` و`connection_type: web`.
+        ينهي الجلسة ويمسح بيانات المصادقة من الجسر.
+      operationId: disconnectWhatsAppBridge
+      parameters:
+        - $ref: '#/components/parameters/WhatsAppAccountId'
+      responses:
+        '200':
+          description: تم قطع الاتصال
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/BridgeConnectResponse'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          description: الحساب ليس من نوع web
+        '503':
+          description: خدمة الجسر غير متاحة
+
+  /webhooks/whatsapp/{whatsappAccount}:
+    get:
+      tags: [Webhooks]
+      summary: تحقق اشتراك Meta
+      description: يستدعيه Meta عند إعداد Callback URL. يُرجع `hub.challenge` كنص خام.
+      operationId: verifyWhatsAppWebhook
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/WhatsAppAccountId'
+        - name: hub.mode
+          in: query
+          schema:
+            type: string
+            example: subscribe
+        - name: hub.verify_token
+          in: query
+          schema:
+            type: string
+        - name: hub.challenge
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: challenge كنص
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: '12345'
+        '403':
+          description: توكن التحقق غير صحيح
+    post:
+      tags: [Webhooks]
+      summary: استقبال أحداث واتساب
+      description: |
+        أحداث الرسائل الواردة وحالات التسليم. يُتحقق من `X-Hub-Signature-256` إذا تم حفظ `app_secret`.
+        المعالجة تتم في Queue.
+      operationId: receiveWhatsAppWebhook
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/WhatsAppAccountId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        '200':
+          description: تم استلام الحدث
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+        '403':
+          description: توقيع غير صالح
+
+  /webhooks/whatsapp-bridge/{whatsappAccount}/connection:
+    post:
+      tags: [Webhooks]
+      summary: حدث اتصال جسر WhatsApp Web
+      description: |
+        يستدعيه جسر Node.js عند تغيّر حالة الجلسة (connecting, qr, connected, disconnected, logged_out, error).
+        يتطلب الهيدر `X-Bridge-Secret` المطابق لـ `WHATSAPP_BRIDGE_SECRET`.
+        يُبث حدث `whatsapp.connection` على قناة الشركة.
+      operationId: receiveBridgeConnectionWebhook
+      security:
+        - bridgeSecret: []
+      parameters:
+        - $ref: '#/components/parameters/WhatsAppAccountId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BridgeConnectionWebhook'
+            examples:
+              qr:
+                summary: QR جاهز
+                value:
+                  status: qr
+                  qr: data:image/png;base64,iVBORw0KGgo...
+              connected:
+                summary: اتصال ناجح
+                value:
+                  status: connected
+                  phone_number: '966500000000'
+      responses:
+        '200':
+          description: تم استلام الحدث
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+        '403':
+          description: سر الجسر غير صحيح
+
+  /webhooks/whatsapp-bridge/{whatsappAccount}/message:
+    post:
+      tags: [Webhooks]
+      summary: رسالة واردة من جسر WhatsApp Web
+      description: |
+        يستدعيه جسر Node.js عند استقبال رسالة من واتساب.
+        يُنشئ عميلاً ومحادثة ورسالة تلقائياً.
+      operationId: receiveBridgeMessageWebhook
+      security:
+        - bridgeSecret: []
+      parameters:
+        - $ref: '#/components/parameters/WhatsAppAccountId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BridgeMessageWebhook'
+            example:
+              whatsapp_message_id: ABC123
+              from: '966555000111'
+              push_name: Ahmed
+              type: text
+              body: مرحباً
+              timestamp: 1725000000
+      responses:
+        '200':
+          description: تم استلام الرسالة
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+        '403':
+          description: سر الجسر غير صحيح
+
+  /webhooks/whatsapp-bridge/{whatsappAccount}/status:
+    post:
+      tags: [Webhooks]
+      summary: تحديث حالة رسالة من الجسر
+      description: |
+        يستدعيه جسر Node.js عند تغيّر حالة إرسال رسالة (sent, delivered, read, failed).
+      operationId: receiveBridgeStatusWebhook
+      security:
+        - bridgeSecret: []
+      parameters:
+        - $ref: '#/components/parameters/WhatsAppAccountId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BridgeStatusWebhook'
+            example:
+              whatsapp_message_id: ABC123
+              status: delivered
+      responses:
+        '200':
+          description: تم تحديث الحالة
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+        '403':
+          description: سر الجسر غير صحيح
+
+  /dashboard:
+    get:
+      tags: [Dashboard]
+      summary: إحصائيات لوحة التحكم
+      description: يتطلب `reports.view`.
+      operationId: getDashboard
+      responses:
+        '200':
+          description: الإحصائيات
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/DashboardStats'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /search:
+    get:
+      tags: [Search]
+      summary: بحث شامل
+      description: يبحث في العملاء والمحادثات ومحتوى الرسائل حسب صلاحية المستخدم.
+      operationId: search
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: type
+          in: query
+          schema:
+            type: string
+            enum: [all, customers, conversations, messages]
+            default: all
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 10
+            minimum: 1
+            maximum: 50
+      responses:
+        '200':
+          description: نتائج مجمّعة
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/SearchResults'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /notifications:
+    get:
+      tags: [Notifications]
+      summary: إشعارات المستخدم
+      operationId: listNotifications
+      parameters:
+        - $ref: '#/components/parameters/PerPage'
+        - $ref: '#/components/parameters/Page'
+      responses:
+        '200':
+          description: قائمة مع عدد غير المقروء
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotificationListResponse'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+
+  /notifications/read-all:
+    post:
+      tags: [Notifications]
+      summary: تعليم كل الإشعارات كمقروءة
+      operationId: markAllNotificationsRead
+      responses:
+        '200':
+          $ref: '#/components/responses/MessageOk'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+
+  /notifications/{notification}/read:
+    post:
+      tags: [Notifications]
+      summary: تعليم إشعار كمقروء
+      operationId: markNotificationRead
+      parameters:
+        - name: notification
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: الإشعار
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /audit-logs:
+    get:
+      tags: [Audit]
+      summary: سجل العمليات
+      description: يتطلب `audit.view`.
+      operationId: listAuditLogs
+      parameters:
+        - $ref: '#/components/parameters/Query'
+        - name: action
+          in: query
+          schema:
+            type: string
+            example: conversation.assigned
+        - name: user_id
+          in: query
+          schema:
+            type: integer
+        - name: per_page
+          in: query
+          schema:
+            type: integer
+            default: 30
+            minimum: 1
+            maximum: 100
+        - $ref: '#/components/parameters/Page'
+      responses:
+        '200':
+          description: السجل
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PaginatedEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/AuditLog'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /permissions:
+    get:
+      tags: [Permissions]
+      summary: قائمة الصلاحيات
+      operationId: listPermissions
+      responses:
+        '200':
+          description: كل الصلاحيات والقيم الافتراضية للموظف
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/PermissionCatalog'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+
+  /broadcasting/auth:
+    post:
+      tags: [Realtime]
+      summary: مصادقة قناة البث
+      description: |
+        يُستخدم من Laravel Echo. المسار الفعلي هو `POST /api/broadcasting/auth` (بدون `/v1`).
+        القنوات: `private-company.{id}` و `private-user.{id}` و `private-conversation.{id}`.
+
+        **أحداث WhatsApp Web على قناة الشركة:**
+        - `whatsapp.connection` — تحديث QR أو حالة الاتصال (الحقل `account` في الحمولة).
+      operationId: broadcastingAuth
+      servers:
+        - url: /api
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [socket_id, channel_name]
+              properties:
+                socket_id:
+                  type: string
+                channel_name:
+                  type: string
+                  example: private-company.1
+      responses:
+        '200':
+          description: مفتاح تفويض القناة
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: Sanctum Token
+    bridgeSecret:
+      type: apiKey
+      in: header
+      name: X-Bridge-Secret
+      description: السر المشترك بين Laravel وجسر WhatsApp (`WHATSAPP_BRIDGE_SECRET`)
+
+  parameters:
+    Page:
+      name: page
+      in: query
+      schema:
+        type: integer
+        default: 1
+        minimum: 1
+    PerPage:
+      name: per_page
+      in: query
+      schema:
+        type: integer
+        default: 20
+        minimum: 1
+        maximum: 100
+    Query:
+      name: q
+      in: query
+      description: بحث نصي
+      schema:
+        type: string
+    UserId:
+      name: user
+      in: path
+      required: true
+      schema:
+        type: integer
+    CustomerId:
+      name: customer
+      in: path
+      required: true
+      schema:
+        type: integer
+    ConversationId:
+      name: conversation
+      in: path
+      required: true
+      schema:
+        type: integer
+    TagId:
+      name: tag
+      in: path
+      required: true
+      schema:
+        type: integer
+    WhatsAppAccountId:
+      name: whatsappAccount
+      in: path
+      required: true
+      schema:
+        type: integer
+    TokenId:
+      name: token
+      in: path
+      required: true
+      schema:
+        type: integer
+
+  responses:
+    MessageOk:
+      description: نجاح
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/SuccessEnvelope'
+    Unauthenticated:
+      description: غير مصادق
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+          example:
+            success: false
+            message: Unauthenticated.
+    Unauthorized:
+      description: بيانات الدخول غير صحيحة
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+          example:
+            success: false
+            message: Invalid credentials.
+    Forbidden:
+      description: لا توجد صلاحية أو الحساب معطّل
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+          example:
+            success: false
+            message: Forbidden.
+    NotFound:
+      description: غير موجود أو خارج نطاق الشركة
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+          example:
+            success: false
+            message: Resource not found.
+    ValidationError:
+      description: خطأ تحقق
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ValidationErrorEnvelope'
+    TooManyRequests:
+      description: تجاوز حد الطلبات
+
+  schemas:
+    SuccessEnvelope:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        message:
+          type: string
+          example: OK
+        data: {}
+
+    CreatedEnvelope:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        message:
+          type: string
+          example: Created
+        data: {}
+
+    PaginatedEnvelope:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        message:
+          type: string
+          example: OK
+        data:
+          type: array
+          items: {}
+        meta:
+          $ref: '#/components/schemas/PaginationMeta'
+
+    PaginationMeta:
+      type: object
+      properties:
+        current_page:
+          type: integer
+          example: 1
+        last_page:
+          type: integer
+          example: 4
+        per_page:
+          type: integer
+          example: 20
+        total:
+          type: integer
+          example: 73
+
+    ErrorEnvelope:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        message:
+          type: string
+        errors:
+          type: object
+          additionalProperties:
+            type: array
+            items:
+              type: string
+
+    ValidationErrorEnvelope:
+      type: object
+      properties:
+        message:
+          type: string
+        errors:
+          type: object
+          additionalProperties:
+            type: array
+            items:
+              type: string
+          example:
+            email:
+              - The email field is required.
+
+    CustomerStatus:
+      type: string
+      enum: [new, active, waiting, completed, blocked]
+
+    ConversationStatus:
+      type: string
+      enum: [open, closed]
+
+    MessageType:
+      type: string
+      enum: [text, image, video, document, audio, sticker, location, contacts, unknown]
+
+    MessageDirection:
+      type: string
+      enum: [inbound, outbound]
+
+    MessageStatus:
+      type: string
+      enum: [sending, sent, delivered, read, failed]
+
+    WhatsAppAccountStatus:
+      type: string
+      enum: [pending, connected, disconnected, error]
+
+    WhatsAppConnectionType:
+      type: string
+      enum: [web, cloud]
+      default: web
+      description: |
+        `web` — WhatsApp Web عبر جسر Baileys (افتراضي).
+        `cloud` — Meta WhatsApp Cloud API.
+
+    BridgeSessionStatus:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [disconnected, connecting, qr, connected, logged_out, error]
+        qr:
+          type: string
+          nullable: true
+          deprecated: true
+          description: استخدم qr_data_url
+        qr_data_url:
+          type: string
+          nullable: true
+          description: data URL جاهز لعرض QR في الفرونت
+        qr_available:
+          type: boolean
+        phone_number:
+          type: string
+          nullable: true
+        message:
+          type: string
+          nullable: true
+
+    WhatsAppBridgeState:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [disconnected, connecting, qr, connected, logged_out, error]
+        qr_available:
+          type: boolean
+        qr_data_url:
+          type: string
+          nullable: true
+          description: ضعه مباشرة في src لعنصر img
+          example: data:image/png;base64,iVBORw0KGgo...
+        phone_number:
+          type: string
+          nullable: true
+        message:
+          type: string
+          nullable: true
+        source:
+          type: string
+          enum: [database, bridge]
+        is_connected:
+          type: boolean
+        poll_after_ms:
+          type: integer
+          nullable: true
+          description: فترة الانتظار قبل إعادة الطلب (مثلاً 3000)
+        account:
+          $ref: '#/components/schemas/WhatsAppAccount'
+
+    BridgeQrResponse:
+      type: object
+      properties:
+        qr:
+          type: string
+          nullable: true
+          description: data URL لرمز QR
+        source:
+          type: string
+          enum: [database, bridge]
+          description: مصدر QR (قاعدة البيانات أو الجسر مباشرة)
+        status:
+          type: string
+          nullable: true
+        phone_number:
+          type: string
+          nullable: true
+
+    BridgeConnectResponse:
+      type: object
+      properties:
+        account:
+          $ref: '#/components/schemas/WhatsAppAccount'
+        bridge:
+          $ref: '#/components/schemas/BridgeSessionStatus'
+
+    BridgeConnectionWebhook:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [connecting, qr, connected, disconnected, logged_out, error]
+        qr:
+          type: string
+          nullable: true
+        phone_number:
+          type: string
+          nullable: true
+        message:
+          type: string
+          nullable: true
+
+    BridgeMessageWebhook:
+      type: object
+      required: [from, type]
+      properties:
+        whatsapp_message_id:
+          type: string
+        from:
+          type: string
+          description: رقم المرسل بصيغة دولية
+        push_name:
+          type: string
+          nullable: true
+        type:
+          type: string
+          enum: [text, image, video, document, audio, sticker, unknown]
+        body:
+          type: string
+          nullable: true
+        timestamp:
+          type: integer
+        media:
+          type: object
+          nullable: true
+          properties:
+            mimetype:
+              type: string
+            filename:
+              type: string
+            file_base64:
+              type: string
+
+    BridgeStatusWebhook:
+      type: object
+      required: [whatsapp_message_id, status]
+      properties:
+        whatsapp_message_id:
+          type: string
+        status:
+          type: string
+          enum: [sent, delivered, read, failed, server_ack, delivery_ack, read_ack]
+        error:
+          type: string
+          nullable: true
+
+    PermissionName:
+      type: string
+      enum:
+        - customers.view
+        - customers.create
+        - customers.update
+        - customers.delete
+        - conversations.view
+        - conversations.view_all
+        - conversations.assign
+        - conversations.close
+        - conversations.delete
+        - messages.view
+        - messages.send
+        - notes.create
+        - tags.view
+        - tags.manage
+        - users.view
+        - users.manage
+        - whatsapp.manage
+        - reports.view
+        - audit.view
+
+    Locale:
+      type: string
+      enum: [ar, en]
+
+    Company:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        slug:
+          type: string
+        locale:
+          $ref: '#/components/schemas/Locale'
+        timezone:
+          type: string
+          example: Asia/Riyadh
+        is_active:
+          type: boolean
+
+    User:
+      type: object
+      properties:
+        id:
+          type: integer
+        company_id:
+          type: integer
+        name:
+          type: string
+        email:
+          type: string
+          format: email
+        phone:
+          type: string
+          nullable: true
+        avatar:
+          type: string
+          nullable: true
+        locale:
+          $ref: '#/components/schemas/Locale'
+        is_active:
+          type: boolean
+        is_online:
+          type: boolean
+        last_login_at:
+          type: string
+          format: date-time
+          nullable: true
+        last_seen_at:
+          type: string
+          format: date-time
+          nullable: true
+        roles:
+          type: array
+          items:
+            type: string
+            enum: [admin, employee]
+        permissions:
+          type: array
+          items:
+            $ref: '#/components/schemas/PermissionName'
+        company:
+          $ref: '#/components/schemas/Company'
+        created_at:
+          type: string
+          format: date-time
+
+    Tag:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        slug:
+          type: string
+        color:
+          type: string
+          example: '#2563EB'
+
+    Customer:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+          nullable: true
+        display_name:
+          type: string
+        phone:
+          type: string
+        whatsapp_number:
+          type: string
+        avatar:
+          type: string
+          nullable: true
+        status:
+          $ref: '#/components/schemas/CustomerStatus'
+        assigned_user_id:
+          type: integer
+          nullable: true
+        whatsapp_account_id:
+          type: integer
+          nullable: true
+        last_contacted_at:
+          type: string
+          format: date-time
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        assigned_user:
+          $ref: '#/components/schemas/User'
+        tags:
+          type: array
+          items:
+            $ref: '#/components/schemas/Tag'
+
+    Conversation:
+      type: object
+      properties:
+        id:
+          type: integer
+        link_id:
+          type: string
+          nullable: true
+          description: معرف خارجي اختياري لربط المحادثة بنظام آخر
+        status:
+          $ref: '#/components/schemas/ConversationStatus'
+        assigned_user_id:
+          type: integer
+          nullable: true
+        whatsapp_account_id:
+          type: integer
+        unread_count:
+          type: integer
+        last_message_preview:
+          type: string
+          nullable: true
+        last_message_at:
+          type: string
+          format: date-time
+          nullable: true
+        closed_at:
+          type: string
+          format: date-time
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        customer:
+          $ref: '#/components/schemas/Customer'
+        assigned_user:
+          $ref: '#/components/schemas/User'
+        whatsapp_account:
+          $ref: '#/components/schemas/WhatsAppAccount'
+
+    UpdateConversationRequest:
+      type: object
+      properties:
+        link_id:
+          type: string
+          nullable: true
+          maxLength: 191
+          description: معرف خارجي فريد داخل الشركة، أو null لإزالته
+
+    MediaFile:
+      type: object
+      properties:
+        id:
+          type: integer
+        type:
+          $ref: '#/components/schemas/MessageType'
+        filename:
+          type: string
+          nullable: true
+        mime_type:
+          type: string
+          nullable: true
+        size:
+          type: integer
+        url:
+          type: string
+          nullable: true
+        caption:
+          type: string
+          nullable: true
+
+    Message:
+      type: object
+      properties:
+        id:
+          type: integer
+        conversation_id:
+          type: integer
+        user_id:
+          type: integer
+          nullable: true
+        direction:
+          $ref: '#/components/schemas/MessageDirection'
+        type:
+          $ref: '#/components/schemas/MessageType'
+        body:
+          type: string
+          nullable: true
+        status:
+          $ref: '#/components/schemas/MessageStatus'
+        error_message:
+          type: string
+          nullable: true
+        sent_at:
+          type: string
+          format: date-time
+          nullable: true
+        delivered_at:
+          type: string
+          format: date-time
+          nullable: true
+        read_at:
+          type: string
+          format: date-time
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        user:
+          $ref: '#/components/schemas/User'
+        media:
+          type: array
+          items:
+            $ref: '#/components/schemas/MediaFile'
+
+    Note:
+      type: object
+      properties:
+        id:
+          type: integer
+        body:
+          type: string
+        customer_id:
+          type: integer
+        conversation_id:
+          type: integer
+          nullable: true
+        user:
+          $ref: '#/components/schemas/User'
+        created_at:
+          type: string
+          format: date-time
+
+    WhatsAppAccount:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        connection_type:
+          $ref: '#/components/schemas/WhatsAppConnectionType'
+        phone_number:
+          type: string
+          description: للحسابات web يُملأ تلقائياً بعد مسح QR
+        phone_number_id:
+          type: string
+          nullable: true
+          description: Cloud API فقط
+        waba_id:
+          type: string
+          nullable: true
+          description: Cloud API فقط
+        status:
+          $ref: '#/components/schemas/WhatsAppAccountStatus'
+        is_default:
+          type: boolean
+        webhook_verify_token:
+          type: string
+          description: Cloud API فقط
+        has_access_token:
+          type: boolean
+        webhook_url:
+          type: string
+          format: uri
+          description: Cloud API فقط
+          example: http://localhost:8000/api/v1/webhooks/whatsapp/1
+        bridge_qr_available:
+          type: boolean
+          description: Web فقط — هل يوجد QR جاهز
+        bridge_connected_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: Web فقط — وقت آخر اتصال
+        last_webhook_at:
+          type: string
+          format: date-time
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+
+    Session:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+          example: office-1
+        last_used_at:
+          type: string
+          format: date-time
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        is_current:
+          type: boolean
+
+    AuditLog:
+      type: object
+      properties:
+        id:
+          type: integer
+        action:
+          type: string
+          example: conversation.assigned
+        description:
+          type: string
+          nullable: true
+        entity_type:
+          type: string
+          nullable: true
+        entity_id:
+          type: integer
+          nullable: true
+        old_values:
+          type: object
+          nullable: true
+        new_values:
+          type: object
+          nullable: true
+        ip_address:
+          type: string
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        user:
+          $ref: '#/components/schemas/User'
+
+    DashboardStats:
+      type: object
+      properties:
+        customers:
+          type: object
+          properties:
+            total:
+              type: integer
+            new:
+              type: integer
+            new_today:
+              type: integer
+        conversations:
+          type: object
+          properties:
+            total:
+              type: integer
+            open:
+              type: integer
+            closed:
+              type: integer
+            unassigned:
+              type: integer
+        messages:
+          type: object
+          properties:
+            today:
+              type: integer
+            this_month:
+              type: integer
+        employees:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: integer
+              name:
+                type: string
+              is_online:
+                type: boolean
+              conversations:
+                type: integer
+              open_conversations:
+                type: integer
+              messages_sent:
+                type: integer
+              customers:
+                type: integer
+
+    SearchResults:
+      type: object
+      properties:
+        customers:
+          type: array
+          items:
+            $ref: '#/components/schemas/Customer'
+        conversations:
+          type: array
+          items:
+            $ref: '#/components/schemas/Conversation'
+        messages:
+          type: array
+          items:
+            $ref: '#/components/schemas/Message'
+
+    PermissionCatalog:
+      type: object
+      properties:
+        all:
+          type: array
+          items:
+            $ref: '#/components/schemas/PermissionName'
+        employee_defaults:
+          type: array
+          items:
+            $ref: '#/components/schemas/PermissionName'
+
+    NotificationListResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        meta:
+          allOf:
+            - $ref: '#/components/schemas/PaginationMeta'
+            - type: object
+              properties:
+                unread_count:
+                  type: integer
+
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+        device_name:
+          type: string
+          maxLength: 80
+          description: اسم الجهاز لتمييز الجلسات
+
+    LoginResponse:
+      allOf:
+        - $ref: '#/components/schemas/SuccessEnvelope'
+        - type: object
+          properties:
+            data:
+              type: object
+              properties:
+                token:
+                  type: string
+                token_type:
+                  type: string
+                  example: Bearer
+                user:
+                  $ref: '#/components/schemas/User'
+
+    UpdateProfileRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          maxLength: 120
+        phone:
+          type: string
+          nullable: true
+          maxLength: 30
+        locale:
+          $ref: '#/components/schemas/Locale'
+        password:
+          type: string
+          minLength: 8
+        password_confirmation:
+          type: string
+
+    StoreUserRequest:
+      type: object
+      required: [name, email, password, role]
+      properties:
+        name:
+          type: string
+          maxLength: 120
+        email:
+          type: string
+          format: email
+        phone:
+          type: string
+          nullable: true
+        password:
+          type: string
+          minLength: 8
+        locale:
+          $ref: '#/components/schemas/Locale'
+        is_active:
+          type: boolean
+          default: true
+        role:
+          type: string
+          enum: [admin, employee]
+        permissions:
+          type: array
+          items:
+            $ref: '#/components/schemas/PermissionName'
+
+    UpdateUserRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        email:
+          type: string
+          format: email
+        phone:
+          type: string
+          nullable: true
+        password:
+          type: string
+          minLength: 8
+        locale:
+          $ref: '#/components/schemas/Locale'
+        is_active:
+          type: boolean
+        role:
+          type: string
+          enum: [admin, employee]
+        permissions:
+          type: array
+          items:
+            $ref: '#/components/schemas/PermissionName'
+
+    StoreCustomerRequest:
+      type: object
+      required: [phone]
+      properties:
+        name:
+          type: string
+          nullable: true
+        phone:
+          type: string
+        whatsapp_number:
+          type: string
+          nullable: true
+        assigned_user_id:
+          type: integer
+          nullable: true
+        whatsapp_account_id:
+          type: integer
+          nullable: true
+        status:
+          $ref: '#/components/schemas/CustomerStatus'
+        tag_ids:
+          type: array
+          items:
+            type: integer
+
+    UpdateCustomerRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          nullable: true
+        phone:
+          type: string
+        whatsapp_number:
+          type: string
+        assigned_user_id:
+          type: integer
+          nullable: true
+        whatsapp_account_id:
+          type: integer
+          nullable: true
+        status:
+          $ref: '#/components/schemas/CustomerStatus'
+        tag_ids:
+          type: array
+          items:
+            type: integer
+
+    StoreNoteRequest:
+      type: object
+      required: [body]
+      properties:
+        body:
+          type: string
+          maxLength: 5000
+        conversation_id:
+          type: integer
+          nullable: true
+
+    StoreMessageJsonRequest:
+      type: object
+      properties:
+        type:
+          $ref: '#/components/schemas/MessageType'
+        body:
+          type: string
+          maxLength: 4096
+        caption:
+          type: string
+          maxLength: 1024
+
+    StoreMessageMultipartRequest:
+      type: object
+      properties:
+        type:
+          $ref: '#/components/schemas/MessageType'
+        body:
+          type: string
+        caption:
+          type: string
+        file:
+          type: string
+          format: binary
+          description: حتى 16MB. صور، فيديو، مستندات، صوت.
+
+    StoreTagRequest:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          maxLength: 60
+        color:
+          type: string
+          maxLength: 16
+          example: '#2563EB'
+
+    StoreWhatsAppAccountRequest:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+        connection_type:
+          $ref: '#/components/schemas/WhatsAppConnectionType'
+        phone_number:
+          type: string
+          description: "مطلوب عند connection_type=cloud فقط"
+        phone_number_id:
+          type: string
+          description: "مطلوب عند connection_type=cloud"
+        waba_id:
+          type: string
+        access_token:
+          type: string
+          description: "مطلوب عند connection_type=cloud"
+        app_secret:
+          type: string
+        webhook_verify_token:
+          type: string
+        is_default:
+          type: boolean
+
+    UpdateWhatsAppAccountRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        phone_number:
+          type: string
+        phone_number_id:
+          type: string
+          nullable: true
+        waba_id:
+          type: string
+          nullable: true
+        access_token:
+          type: string
+          nullable: true
+        app_secret:
+          type: string
+          nullable: true
+        webhook_verify_token:
+          type: string
+        is_default:
+          type: boolean
+        status:
+          $ref: '#/components/schemas/WhatsAppAccountStatus'
