@@ -4,6 +4,7 @@ namespace App\Jobs;
 
 use App\Enums\MessageStatus;
 use App\Enums\MessageType;
+use App\Enums\WhatsAppConnectionType;
 use App\Events\MessageStatusUpdated;
 use App\Models\Message;
 use App\Models\WhatsAppAccount;
@@ -38,6 +39,23 @@ class SendWhatsAppMessageJob implements ShouldQueue
         $customer = $message->conversation->customer;
         $to = $customer->whatsapp_number;
         $jid = $this->resolveBridgeJid($customer);
+
+        // Groups can only be sent through the WhatsApp Web bridge (Baileys);
+        // Meta Cloud API rejects @g.us recipients. Fall back to a web account
+        // for the company when the conversation is tied to a cloud account.
+        if ($customer->isGroup() && ! $account->isWebConnection()) {
+            $account = $this->resolveWebAccountForCompany($account->company_id);
+
+            if (! $account) {
+                $message->update([
+                    'status' => MessageStatus::Failed,
+                    'error_message' => 'WhatsApp groups require a WhatsApp Web (bridge) account. Connect a web account for this company.',
+                ]);
+                MessageStatusUpdated::dispatch($message->fresh(['conversation', 'media', 'user']));
+
+                return;
+            }
+        }
 
         try {
             $response = $account->isWebConnection()
@@ -149,5 +167,14 @@ class SendWhatsAppMessageJob implements ShouldQueue
         }
 
         return WhatsAppJid::inferFromStoredNumber($customer->whatsapp_number);
+    }
+
+    protected function resolveWebAccountForCompany(int $companyId): ?WhatsAppAccount
+    {
+        return WhatsAppAccount::query()
+            ->where('company_id', $companyId)
+            ->where('connection_type', WhatsAppConnectionType::Web)
+            ->latest('id')
+            ->first();
     }
 }
