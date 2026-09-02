@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests;
 
+use App\Enums\CustomerChatType;
 use App\Enums\CustomerStatus;
 use App\Support\Permissions;
 use Illuminate\Foundation\Http\FormRequest;
@@ -36,6 +37,8 @@ class StoreCustomerRequest extends FormRequest
                 'nullable',
                 Rule::exists('whatsapp_accounts', 'id')->where('company_id', $this->user()->company_id),
             ],
+            'whatsapp_jid' => ['nullable', 'string', 'max:255'],
+            'chat_type' => ['nullable', Rule::enum(CustomerChatType::class)],
             'status' => ['nullable', Rule::enum(CustomerStatus::class)],
             'tag_ids' => ['nullable', 'array'],
             'tag_ids.*' => [

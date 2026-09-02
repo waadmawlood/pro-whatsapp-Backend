@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests;
 
+use App\Enums\CustomerChatType;
 use App\Enums\CustomerStatus;
 use App\Support\Permissions;
 use Illuminate\Foundation\Http\FormRequest;
@@ -23,6 +24,8 @@ class UpdateCustomerRequest extends FormRequest
             'name' => ['sometimes', 'nullable', 'string', 'max:120'],
             'phone' => ['sometimes', 'string', 'max:30'],
             'whatsapp_number' => ['sometimes', 'string', 'max:30'],
+            'whatsapp_jid' => ['sometimes', 'string', 'max:255'],
+            'chat_type' => ['sometimes', Rule::enum(CustomerChatType::class)],
             'assigned_user_id' => [
                 'nullable',
                 Rule::exists('users', 'id')->where('company_id', $this->user()->company_id),
