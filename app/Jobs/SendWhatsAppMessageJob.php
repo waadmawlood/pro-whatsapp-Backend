@@ -42,7 +42,7 @@ class SendWhatsAppMessageJob implements ShouldQueue
         try {
             $response = $account->isWebConnection()
                 ? $this->dispatchToBridge($account, $message, $to, $jid)
-                : $this->dispatchToCloud(new WhatsAppCloudClient($account), $message, $to);
+                : $this->dispatchToCloud(new WhatsAppCloudClient($account), $message, $to, $jid);
 
             $whatsappId = $account->isWebConnection()
                 ? ($response['whatsapp_message_id'] ?? null)
@@ -72,16 +72,16 @@ class SendWhatsAppMessageJob implements ShouldQueue
     /**
      * @return array<string, mixed>
      */
-    protected function dispatchToCloud(WhatsAppCloudClient $client, Message $message, string $to): array
+    protected function dispatchToCloud(WhatsAppCloudClient $client, Message $message, string $to, ?string $jid = null): array
     {
         if ($message->type === MessageType::Text) {
-            return $client->sendText($to, (string) $message->body);
+            return $client->sendText($to, (string) $message->body, $jid);
         }
 
         $media = $message->media->first();
 
         if (! $media) {
-            return $client->sendText($to, (string) $message->body);
+            return $client->sendText($to, (string) $message->body, $jid);
         }
 
         $absolute = $media->path
@@ -105,6 +105,7 @@ class SendWhatsAppMessageJob implements ShouldQueue
             $mediaId,
             $media->caption ?? $message->body,
             $media->filename,
+            $jid,
         );
     }
 

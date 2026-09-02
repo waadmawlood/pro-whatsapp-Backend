@@ -12,15 +12,15 @@ class WhatsAppCloudClient
 {
     public function __construct(protected WhatsAppAccount $account) {}
 
-    public function sendText(string $to, string $body): array
+    public function sendText(string $to, string $body, ?string $jid = null): array
     {
         return $this->send($to, [
             'type' => 'text',
             'text' => ['preview_url' => false, 'body' => $body],
-        ]);
+        ], $jid);
     }
 
-    public function sendMedia(string $to, string $type, string $mediaId, ?string $caption = null, ?string $filename = null): array
+    public function sendMedia(string $to, string $type, string $mediaId, ?string $caption = null, ?string $filename = null, ?string $jid = null): array
     {
         $payload = ['id' => $mediaId];
 
@@ -35,7 +35,7 @@ class WhatsAppCloudClient
         return $this->send($to, [
             'type' => $type,
             $type => $payload,
-        ]);
+        ], $jid);
     }
 
     public function uploadMedia(UploadedFile|string $file, string $mimeType): string
@@ -97,15 +97,20 @@ class WhatsAppCloudClient
         ]);
     }
 
-    protected function send(string $to, array $payload): array
+    protected function send(string $to, array $payload, ?string $jid = null): array
     {
         $this->assertReady();
 
-        $response = $this->http()->post($this->graphUrl($this->account->phone_number_id.'/messages'), array_merge([
+        $messagePayload = [
             'messaging_product' => 'whatsapp',
-            'recipient_type' => 'individual',
-            'to' => $to,
-        ], $payload));
+            'to' => $jid ?? $to,
+        ];
+
+        if ($jid === null) {
+            $messagePayload['recipient_type'] = 'individual';
+        }
+
+        $response = $this->http()->post($this->graphUrl($this->account->phone_number_id.'/messages'), array_merge($messagePayload, $payload));
 
         if ($response->failed()) {
             throw new RuntimeException('WhatsApp send failed: '.$response->json('error.message', $response->body()));
