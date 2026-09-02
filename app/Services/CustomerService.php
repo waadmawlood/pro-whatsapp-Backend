@@ -18,7 +18,8 @@ class CustomerService
 
     public function create(User $actor, array $data): Customer
     {
-        $phone = PhoneNumber::normalize($data['phone'] ?? $data['whatsapp_number']);
+        // $phone = PhoneNumber::normalize($data['phone'] ?? $data['whatsapp_number']);
+        $phone = $data['phone'] ?? $data['whatsapp_number'] ?? null;
 
         $customer = Customer::create([
             'company_id' => $actor->company_id,
@@ -26,7 +27,9 @@ class CustomerService
             'assigned_user_id' => $data['assigned_user_id'] ?? null,
             'name' => $data['name'] ?? null,
             'phone' => $phone,
-            'whatsapp_number' => PhoneNumber::normalize($data['whatsapp_number'] ?? $phone),
+            'whatsapp_number' => $data['whatsapp_number'] ?? $phone,
+            'whatsapp_jid' => $data['whatsapp_jid'] ?? null,
+            'chat_type' => $data['chat_type'] ?? CustomerChatType::Direct,
             'avatar' => $data['avatar'] ?? null,
             'status' => $data['status'] ?? CustomerStatus::New,
         ]);
@@ -48,9 +51,9 @@ class CustomerService
             $data['phone'] = PhoneNumber::normalize($data['phone']);
         }
 
-        if (isset($data['whatsapp_number'])) {
-            $data['whatsapp_number'] = PhoneNumber::normalize($data['whatsapp_number']);
-        }
+        // if (isset($data['whatsapp_number'])) {
+        //     $data['whatsapp_number'] = PhoneNumber::normalize($data['whatsapp_number']);
+        // }
 
         $customer->update($data);
 
