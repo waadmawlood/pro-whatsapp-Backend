@@ -4,17 +4,19 @@ namespace App\Jobs;
 
 use App\Enums\MessageStatus;
 use App\Enums\MessageType;
+use App\Enums\WhatsAppAccountStatus;
 use App\Enums\WhatsAppConnectionType;
 use App\Events\MessageStatusUpdated;
+use App\Models\Customer;
 use App\Models\Message;
 use App\Models\WhatsAppAccount;
-use App\Models\Customer;
 use App\Services\WhatsApp\WhatsAppBridgeClient;
 use App\Services\WhatsApp\WhatsAppCloudClient;
 use App\Support\WhatsAppJid;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
 use Illuminate\Support\Facades\Log;
+use RuntimeException;
 use Throwable;
 
 class SendWhatsAppMessageJob implements ShouldQueue
@@ -39,12 +41,10 @@ class SendWhatsAppMessageJob implements ShouldQueue
         $customer = $message->conversation->customer;
         $to = $customer->whatsapp_number;
         $jid = $this->resolveBridgeJid($customer);
+        $isGroup = $customer->isGroupRecipient($jid);
 
-        // Groups can only be sent through the WhatsApp Web bridge (Baileys);
-        // Meta Cloud API rejects @g.us recipients. Fall back to a web account
-        // for the company when the conversation is tied to a cloud account.
-        if ($customer->isGroup() && ! $account->isWebConnection()) {
-            $account = $this->resolveWebAccountForCompany($account->company_id);
+        if ($isGroup) {
+            $account = $this->resolveWebAccountForGroup($customer, $account);
 
             if (! $account) {
                 $message->update([
@@ -58,11 +58,11 @@ class SendWhatsAppMessageJob implements ShouldQueue
         }
 
         try {
-            $response = $account->isWebConnection()
+            $response = ($isGroup || $account->isWebConnection())
                 ? $this->dispatchToBridge($account, $message, $to, $jid)
                 : $this->dispatchToCloud(new WhatsAppCloudClient($account), $message, $to, $jid);
 
-            $whatsappId = $account->isWebConnection()
+            $whatsappId = ($isGroup || $account->isWebConnection())
                 ? ($response['whatsapp_message_id'] ?? null)
                 : ($response['messages'][0]['id'] ?? null);
 
@@ -92,6 +92,10 @@ class SendWhatsAppMessageJob implements ShouldQueue
      */
     protected function dispatchToCloud(WhatsAppCloudClient $client, Message $message, string $to, ?string $jid = null): array
     {
+        if ($jid && WhatsAppJid::isGroupJid($jid)) {
+            throw new RuntimeException('WhatsApp groups cannot be sent through the Cloud API. Use a WhatsApp Web account.');
+        }
+
         if ($message->type === MessageType::Text) {
             return $client->sendText($to, (string) $message->body, $jid);
         }
@@ -114,7 +118,7 @@ class SendWhatsAppMessageJob implements ShouldQueue
         }
 
         if (! $mediaId) {
-            throw new \RuntimeException('Media file is missing for outbound WhatsApp message.');
+            throw new RuntimeException('Media file is missing for outbound WhatsApp message.');
         }
 
         return $client->sendMedia(
@@ -158,21 +162,45 @@ class SendWhatsAppMessageJob implements ShouldQueue
 
     protected function resolveBridgeJid(Customer $customer): ?string
     {
-        if ($customer->whatsapp_jid) {
+        if ($customer->whatsapp_jid && str_contains($customer->whatsapp_jid, '@')) {
             return $customer->whatsapp_jid;
         }
 
-        if ($customer->isGroup()) {
+        if ($customer->isGroupRecipient()) {
             return WhatsAppJid::groupJidFromNumber($customer->whatsapp_number);
         }
 
         return WhatsAppJid::inferFromStoredNumber($customer->whatsapp_number);
     }
 
-    protected function resolveWebAccountForCompany(int $companyId): ?WhatsAppAccount
+    protected function resolveWebAccountForGroup(Customer $customer, WhatsAppAccount $conversationAccount): ?WhatsAppAccount
     {
+        if ($conversationAccount->isWebConnection()) {
+            return $conversationAccount;
+        }
+
+        if ($customer->whatsapp_account_id) {
+            $linkedAccount = WhatsAppAccount::query()->find($customer->whatsapp_account_id);
+
+            if ($linkedAccount?->isWebConnection()) {
+                return $linkedAccount;
+            }
+        }
+
+        $connectedAccount = WhatsAppAccount::query()
+            ->where('company_id', $conversationAccount->company_id)
+            ->where('connection_type', WhatsAppConnectionType::Web)
+            ->where('status', WhatsAppAccountStatus::Connected)
+            ->orderByDesc('bridge_connected_at')
+            ->orderByDesc('id')
+            ->first();
+
+        if ($connectedAccount) {
+            return $connectedAccount;
+        }
+
         return WhatsAppAccount::query()
-            ->where('company_id', $companyId)
+            ->where('company_id', $conversationAccount->company_id)
             ->where('connection_type', WhatsAppConnectionType::Web)
             ->latest('id')
             ->first();

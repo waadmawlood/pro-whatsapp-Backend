@@ -5,6 +5,7 @@ namespace App\Models;
 use App\Enums\CustomerChatType;
 use App\Enums\CustomerStatus;
 use App\Models\Concerns\BelongsToCompany;
+use App\Support\WhatsAppJid;
 use Database\Factories\CustomerFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Builder;
@@ -86,6 +87,25 @@ class Customer extends Model
     public function isGroup(): bool
     {
         return $this->chat_type === CustomerChatType::Group;
+    }
+
+    public function isGroupRecipient(?string $resolvedJid = null): bool
+    {
+        if ($this->isGroup()) {
+            return true;
+        }
+
+        if ($resolvedJid && WhatsAppJid::isGroupJid($resolvedJid)) {
+            return true;
+        }
+
+        if ($this->whatsapp_jid && WhatsAppJid::isGroupJid($this->whatsapp_jid)) {
+            return true;
+        }
+
+        $digits = preg_replace('/\D/', '', (string) $this->whatsapp_number) ?? '';
+
+        return strlen($digits) > 15;
     }
 
     public function displayName(): string
