@@ -3,11 +3,15 @@
 namespace Tests\Feature;
 
 use App\Enums\MessageDirection;
+use App\Enums\MessageStatus;
 use App\Enums\WhatsAppAccountStatus;
 use App\Enums\WhatsAppConnectionType;
+use App\Jobs\ProcessBridgeStatusWebhookJob;
+use App\Models\Conversation;
 use App\Models\Customer;
 use App\Models\Message;
 use App\Models\WhatsAppAccount;
+use App\Services\WhatsApp\WhatsAppBridgeWebhookService;
 use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
 
@@ -198,5 +202,41 @@ class WhatsAppBridgeWebhookTest extends TestCase
             return str_contains($request->url(), '/sessions/')
                 && $request->hasHeader('X-Bridge-Secret', 'bridge-secret');
         });
+    }
+
+    public function test_bridge_status_cannot_update_message_belonging_to_another_account(): void
+    {
+        config(['whatsapp.bridge.secret' => 'bridge-secret']);
+
+        $webAccount = WhatsAppAccount::factory()->create([
+            'company_id' => $this->company->id,
+            'connection_type' => WhatsAppConnectionType::Web,
+        ]);
+
+        $otherAccount = WhatsAppAccount::factory()->create([
+            'company_id' => $this->company->id,
+            'connection_type' => WhatsAppConnectionType::Web,
+        ]);
+
+        $customer = Customer::factory()->create(['company_id' => $this->company->id]);
+        $conversation = Conversation::factory()->create([
+            'company_id' => $this->company->id,
+            'customer_id' => $customer->id,
+            'whatsapp_account_id' => $otherAccount->id,
+        ]);
+        $message = Message::factory()->create([
+            'company_id' => $this->company->id,
+            'conversation_id' => $conversation->id,
+            'whatsapp_account_id' => $otherAccount->id,
+            'whatsapp_message_id' => 'account-bound-status-001',
+            'status' => MessageStatus::Sending,
+        ]);
+
+        (new ProcessBridgeStatusWebhookJob($webAccount->id, [
+            'whatsapp_message_id' => $message->whatsapp_message_id,
+            'status' => 'sent',
+        ]))->handle(app(WhatsAppBridgeWebhookService::class));
+
+        $this->assertSame(MessageStatus::Sending, $message->fresh()->status);
     }
 }

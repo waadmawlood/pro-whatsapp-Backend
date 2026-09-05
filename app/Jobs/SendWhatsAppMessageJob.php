@@ -12,6 +12,7 @@ use App\Models\Message;
 use App\Models\WhatsAppAccount;
 use App\Services\WhatsApp\WhatsAppBridgeClient;
 use App\Services\WhatsApp\WhatsAppCloudClient;
+use App\Support\CompanyContext;
 use App\Support\WhatsAppJid;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
@@ -30,34 +31,43 @@ class SendWhatsAppMessageJob implements ShouldQueue
     public function handle(): void
     {
         $message = Message::withoutGlobalScopes()
-            ->with(['conversation.customer', 'whatsappAccount', 'media'])
             ->find($this->messageId);
 
-        if (! $message || ! $message->whatsappAccount) {
+        if (! $message) {
+            CompanyContext::clear();
+
             return;
         }
 
-        $account = $message->whatsappAccount;
-        $customer = $message->conversation->customer;
-        $to = $customer->whatsapp_number;
-        $jid = $this->resolveBridgeJid($customer);
-        $isGroup = $customer->isGroupRecipient($jid);
-
-        if ($isGroup) {
-            $account = $this->resolveWebAccountForGroup($customer, $account);
-
-            if (! $account) {
-                $message->update([
-                    'status' => MessageStatus::Failed,
-                    'error_message' => 'WhatsApp groups require a WhatsApp Web (bridge) account. Connect a web account for this company.',
-                ]);
-                MessageStatusUpdated::dispatch($message->fresh(['conversation', 'media', 'user']));
-
-                return;
-            }
-        }
+        CompanyContext::set($message->company_id);
 
         try {
+            $message->load(['conversation.customer', 'whatsappAccount', 'media']);
+
+            if (! $message->whatsappAccount) {
+                return;
+            }
+
+            $account = $message->whatsappAccount;
+            $customer = $message->conversation->customer;
+            $to = $customer->whatsapp_number;
+            $jid = $this->resolveBridgeJid($customer);
+            $isGroup = $customer->isGroupRecipient($jid);
+
+            if ($isGroup) {
+                $account = $this->resolveWebAccountForGroup($customer, $account);
+
+                if (! $account) {
+                    $message->update([
+                        'status' => MessageStatus::Failed,
+                        'error_message' => 'WhatsApp groups require a WhatsApp Web (bridge) account. Connect a web account for this company.',
+                    ]);
+                    MessageStatusUpdated::dispatch($message->fresh(['conversation', 'media', 'user']));
+
+                    return;
+                }
+            }
+
             $response = ($isGroup || $account->isWebConnection())
                 ? $this->dispatchToBridge($account, $message, $to, $jid)
                 : $this->dispatchToCloud(new WhatsAppCloudClient($account), $message, $to, $jid);
@@ -82,6 +92,11 @@ class SendWhatsAppMessageJob implements ShouldQueue
                 'status' => MessageStatus::Failed,
                 'error_message' => $exception->getMessage(),
             ]);
+            MessageStatusUpdated::dispatch($message->fresh(['conversation', 'media', 'user']));
+
+            throw $exception;
+        } finally {
+            CompanyContext::clear();
         }
 
         MessageStatusUpdated::dispatch($message->fresh(['conversation', 'media', 'user']));
@@ -97,13 +112,13 @@ class SendWhatsAppMessageJob implements ShouldQueue
         }
 
         if ($message->type === MessageType::Text) {
-            return $client->sendText($to, (string) $message->body, $jid);
+            return $client->sendText($to, (string) $message->body);
         }
 
         $media = $message->media->first();
 
         if (! $media) {
-            return $client->sendText($to, (string) $message->body, $jid);
+            return $client->sendText($to, (string) $message->body);
         }
 
         $absolute = $media->path
@@ -127,7 +142,6 @@ class SendWhatsAppMessageJob implements ShouldQueue
             $mediaId,
             $media->caption ?? $message->body,
             $media->filename,
-            $jid,
         );
     }
 

@@ -3,6 +3,7 @@
 namespace App\Jobs;
 
 use App\Services\WhatsApp\WhatsAppWebhookService;
+use App\Support\CompanyContext;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
 
@@ -17,6 +18,10 @@ class ProcessIncomingWhatsAppWebhookJob implements ShouldQueue
 
     public function handle(WhatsAppWebhookService $webhooks): void
     {
-        $webhooks->handle($this->payload);
+        try {
+            $webhooks->handle($this->payload);
+        } finally {
+            CompanyContext::clear();
+        }
     }
 }

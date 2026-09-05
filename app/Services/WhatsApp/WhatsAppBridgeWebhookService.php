@@ -14,11 +14,11 @@ use App\Models\WhatsAppAccount;
 use App\Services\ConversationService;
 use App\Services\CustomerService;
 use App\Services\MessageService;
+use App\Support\CompanyContext;
 use App\Support\PhoneNumber;
 use App\Support\WhatsAppJid;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Log;
-use Spatie\Permission\PermissionRegistrar;
 
 class WhatsAppBridgeWebhookService
 {
@@ -109,7 +109,12 @@ class WhatsAppBridgeWebhookService
             ?? $payload['group_id'] ?? null;
 
         if ($remoteJid && ! str_contains($remoteJid, '@')) {
-            $remoteJid .= '@g.us';
+            $digits = preg_replace('/\D/', '', $remoteJid) ?? '';
+            $isGroup = ($payload['chat_type'] ?? null) === 'group'
+                || isset($payload['group_jid'], $payload['group_id'])
+                || strlen($digits) > 15;
+
+            $remoteJid .= $isGroup ? '@g.us' : '@s.whatsapp.net';
         }
 
         $remoteJid ??= data_get($payload, 'group.id');
@@ -198,6 +203,7 @@ class WhatsAppBridgeWebhookService
         }
 
         $message = Message::withoutGlobalScopes()
+            ->where('whatsapp_account_id', $account->id)
             ->where('whatsapp_message_id', $whatsappId)
             ->first();
 
@@ -281,7 +287,6 @@ class WhatsAppBridgeWebhookService
             return;
         }
 
-        app()->instance('current_company_id', $account->company_id);
-        app(PermissionRegistrar::class)->setPermissionsTeamId($account->company_id);
+        CompanyContext::set($account->company_id);
     }
 }

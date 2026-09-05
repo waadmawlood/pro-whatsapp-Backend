@@ -33,7 +33,7 @@ class WhatsAppWebhookController extends Controller
     ): JsonResponse {
         $signature = $request->header('X-Hub-Signature-256');
 
-        if ($whatsappAccount->app_secret && ! $webhooks->verifySignature($whatsappAccount, $request->getContent(), $signature)) {
+        if (! $webhooks->verifySignature($whatsappAccount, $request->getContent(), $signature)) {
             Log::warning('Invalid WhatsApp webhook signature', ['account_id' => $whatsappAccount->id]);
 
             return response()->json(['message' => 'Invalid signature'], 403);

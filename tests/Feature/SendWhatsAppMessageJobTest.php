@@ -180,4 +180,55 @@ class SendWhatsAppMessageJobTest extends TestCase
         $this->assertSame(MessageStatus::Failed, $message->status);
         $this->assertStringContainsString('WhatsApp Web', (string) $message->error_message);
     }
+
+    public function test_cloud_direct_message_uses_phone_number_instead_of_jid(): void
+    {
+        config(['whatsapp.graph_version' => 'v21.0']);
+
+        Http::fake([
+            'graph.facebook.com/*/messages' => Http::response([
+                'messages' => [['id' => 'cloud-msg-001']],
+            ], 200),
+        ]);
+
+        $cloudAccount = WhatsAppAccount::factory()->create([
+            'company_id' => $this->company->id,
+            'connection_type' => WhatsAppConnectionType::Cloud,
+            'phone_number_id' => 'phone-number-id',
+            'access_token' => 'access-token',
+        ]);
+
+        $customer = Customer::factory()->create([
+            'company_id' => $this->company->id,
+            'whatsapp_account_id' => $cloudAccount->id,
+            'whatsapp_number' => '966555000444',
+            'whatsapp_jid' => '966555000444@s.whatsapp.net',
+            'chat_type' => CustomerChatType::Direct,
+        ]);
+
+        $conversation = Conversation::factory()->create([
+            'company_id' => $this->company->id,
+            'whatsapp_account_id' => $cloudAccount->id,
+            'customer_id' => $customer->id,
+        ]);
+
+        $message = Message::factory()->create([
+            'company_id' => $this->company->id,
+            'conversation_id' => $conversation->id,
+            'whatsapp_account_id' => $cloudAccount->id,
+            'direction' => MessageDirection::Outbound,
+            'body' => 'Cloud direct message',
+            'status' => MessageStatus::Sending,
+        ]);
+
+        SendWhatsAppMessageJob::dispatchSync($message->id);
+
+        $message->refresh();
+
+        $this->assertSame(MessageStatus::Sent, $message->status);
+        Http::assertSent(function ($request): bool {
+            return $request['to'] === '966555000444'
+                && $request['recipient_type'] === 'individual';
+        });
+    }
 }

@@ -12,10 +12,10 @@ use App\Models\WhatsAppAccount;
 use App\Services\ConversationService;
 use App\Services\CustomerService;
 use App\Services\MessageService;
+use App\Support\CompanyContext;
 use App\Support\PhoneNumber;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Log;
-use Spatie\Permission\PermissionRegistrar;
 
 class WhatsAppWebhookService
 {
@@ -54,11 +54,10 @@ class WhatsAppWebhookService
                     'last_webhook_at' => now(),
                 ])->save();
 
-                app()->instance('current_company_id', $account->company_id);
-                app(PermissionRegistrar::class)->setPermissionsTeamId($account->company_id);
+                CompanyContext::set($account->company_id);
 
                 foreach ($value['statuses'] ?? [] as $status) {
-                    $this->handleStatus($status);
+                    $this->handleStatus($account, $status);
                 }
 
                 foreach ($value['messages'] ?? [] as $incoming) {
@@ -71,7 +70,7 @@ class WhatsAppWebhookService
     /**
      * @param  array<string, mixed>  $status
      */
-    protected function handleStatus(array $status): void
+    protected function handleStatus(WhatsAppAccount $account, array $status): void
     {
         $whatsappId = $status['id'] ?? null;
 
@@ -80,6 +79,7 @@ class WhatsAppWebhookService
         }
 
         $message = Message::withoutGlobalScopes()
+            ->where('whatsapp_account_id', $account->id)
             ->where('whatsapp_message_id', $whatsappId)
             ->first();
 

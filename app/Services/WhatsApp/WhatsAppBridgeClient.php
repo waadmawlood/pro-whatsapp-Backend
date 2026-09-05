@@ -64,13 +64,19 @@ class WhatsAppBridgeClient
             throw new RuntimeException('Media file not found: '.$filePath);
         }
 
+        $contents = file_get_contents($filePath);
+
+        if ($contents === false) {
+            throw new RuntimeException('Media file could not be read: '.$filePath);
+        }
+
         return $this->post("/sessions/{$this->account->id}/send-media", array_filter([
             'to' => $to,
             'type' => $type,
             'caption' => $caption,
             'mimetype' => $mimetype,
             'filename' => basename($filePath),
-            'file_base64' => base64_encode(file_get_contents($filePath)),
+            'file_base64' => base64_encode($contents),
             'jid' => $jid,
         ], fn ($value) => $value !== null));
     }

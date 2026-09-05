@@ -4,6 +4,7 @@ namespace App\Jobs;
 
 use App\Models\WhatsAppAccount;
 use App\Services\WhatsApp\WhatsAppBridgeWebhookService;
+use App\Support\CompanyContext;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
 
@@ -24,9 +25,15 @@ class ProcessBridgeMessageWebhookJob implements ShouldQueue
         $account = WhatsAppAccount::withoutGlobalScopes()->find($this->accountId);
 
         if (! $account) {
+            CompanyContext::clear();
+
             return;
         }
 
-        $webhooks->handleIncomingMessage($account, $this->payload);
+        try {
+            $webhooks->handleIncomingMessage($account, $this->payload);
+        } finally {
+            CompanyContext::clear();
+        }
     }
 }

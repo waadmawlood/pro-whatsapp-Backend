@@ -41,7 +41,7 @@ class WhatsAppWebhookTest extends TestCase
         $account = WhatsAppAccount::factory()->create([
             'company_id' => $this->company->id,
             'phone_number_id' => '111222333',
-            'app_secret' => null,
+            'app_secret' => 'test-app-secret',
         ]);
 
         $payload = [
@@ -66,7 +66,9 @@ class WhatsAppWebhookTest extends TestCase
             ]],
         ];
 
-        $this->postJson('/api/v1/webhooks/whatsapp/'.$account->id, $payload)
+        $this->withHeaders([
+            'X-Hub-Signature-256' => 'sha256='.hash_hmac('sha256', json_encode($payload), 'test-app-secret'),
+        ])->postJson('/api/v1/webhooks/whatsapp/'.$account->id, $payload)
             ->assertOk();
 
         (new ProcessIncomingWhatsAppWebhookJob($payload))->handle(app(WhatsAppWebhookService::class));
@@ -93,14 +95,31 @@ class WhatsAppWebhookTest extends TestCase
 
         $account = WhatsAppAccount::factory()->create([
             'company_id' => $this->company->id,
+            'app_secret' => 'test-app-secret',
+        ]);
+
+        $payload = [
+            'object' => 'whatsapp_business_account',
+            'entry' => [],
+        ];
+
+        $this->withHeaders([
+            'X-Hub-Signature-256' => 'sha256='.hash_hmac('sha256', json_encode($payload), 'test-app-secret'),
+        ])->postJson('/api/v1/webhooks/whatsapp/'.$account->id, $payload)->assertOk();
+
+        Queue::assertPushed(ProcessIncomingWhatsAppWebhookJob::class);
+    }
+
+    public function test_webhook_rejects_unsigned_payload_when_app_secret_is_missing(): void
+    {
+        $account = WhatsAppAccount::factory()->create([
+            'company_id' => $this->company->id,
             'app_secret' => null,
         ]);
 
         $this->postJson('/api/v1/webhooks/whatsapp/'.$account->id, [
             'object' => 'whatsapp_business_account',
             'entry' => [],
-        ])->assertOk();
-
-        Queue::assertPushed(ProcessIncomingWhatsAppWebhookJob::class);
+        ])->assertForbidden();
     }
 }
