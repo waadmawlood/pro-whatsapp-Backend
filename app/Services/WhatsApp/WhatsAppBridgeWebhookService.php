@@ -18,7 +18,6 @@ use App\Support\PhoneNumber;
 use App\Support\WhatsAppJid;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Storage;
 use Spatie\Permission\PermissionRegistrar;
 
 class WhatsAppBridgeWebhookService
@@ -104,12 +103,25 @@ class WhatsAppBridgeWebhookService
             return;
         }
 
-        $remoteJid = $payload['remote_jid'] ?? null;
-        $chatType = ($payload['chat_type'] ?? 'direct') === 'group'
+        $remoteJid = $payload['remote_jid']
+            ?? $payload['group_jid']
+            ?? $payload['chat_jid']
+            ?? $payload['group_id'] ?? null;
+
+        if ($remoteJid && ! str_contains($remoteJid, '@')) {
+            $remoteJid .= '@g.us';
+        }
+
+        $remoteJid ??= data_get($payload, 'group.id');
+
+        if ($remoteJid && ! str_contains($remoteJid, '@')) {
+            $remoteJid .= '@g.us';
+        }
+        $chatType = ($payload['chat_type'] ?? null) === 'group' || WhatsAppJid::isGroupJid($remoteJid)
             ? CustomerChatType::Group
             : CustomerChatType::Direct;
 
-        if ($remoteJid && ! WhatsAppJid::isDirectChatJid($remoteJid)) {
+        if ($remoteJid && ! WhatsAppJid::isSupportedChatJid($remoteJid)) {
             Log::warning('Ignoring unsupported WhatsApp chat jid', [
                 'account_id' => $account->id,
                 'remote_jid' => $remoteJid,
@@ -118,7 +130,16 @@ class WhatsAppBridgeWebhookService
             return;
         }
 
-        $from = PhoneNumber::normalize($payload['from'] ?? '');
+        $from = PhoneNumber::normalize($payload['from'] ?? '')
+            ?? WhatsAppJid::digitsFromJid($remoteJid);
+
+        if (! $from) {
+            Log::warning('Ignoring bridge message without a sender or remote JID', [
+                'account_id' => $account->id,
+            ]);
+
+            return;
+        }
         $type = $this->mapType($payload['type'] ?? 'text');
         $sentAt = isset($payload['timestamp'])
             ? Carbon::createFromTimestamp((int) $payload['timestamp'])

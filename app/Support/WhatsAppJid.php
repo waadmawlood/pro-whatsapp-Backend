@@ -20,7 +20,7 @@ class WhatsAppJid
         return is_string($jid) && str_ends_with($jid, '@g.us');
     }
 
-    public static function isDirectChatJid(?string $jid): bool
+    public static function isSupportedChatJid(?string $jid): bool
     {
         if (! is_string($jid) || $jid === '') {
             return false;
@@ -37,6 +37,7 @@ class WhatsAppJid
 
         return $digits.'@g.us';
     }
+
     /**
      * Guess a WhatsApp JID when only the numeric part was stored (legacy inbound parsing).
      */

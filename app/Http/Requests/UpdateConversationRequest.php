@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests;
 
+use App\Models\Conversation;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
@@ -17,7 +18,7 @@ class UpdateConversationRequest extends FormRequest
      */
     public function rules(): array
     {
-        /** @var \App\Models\Conversation|null $conversation */
+        /** @var Conversation|null $conversation */
         $conversation = $this->route('conversation');
 
         return [

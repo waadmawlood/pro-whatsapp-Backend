@@ -15,6 +15,7 @@ use App\Models\Message;
 use App\Models\User;
 use App\Notifications\NewMessageNotification;
 use App\Support\Permissions;
+use Illuminate\Database\QueryException;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -54,19 +55,47 @@ class MessageService
 
     public function storeInbound(Conversation $conversation, array $payload): Message
     {
-        $message = Message::withoutGlobalScopes()->create([
-            'company_id' => $conversation->company_id,
-            'conversation_id' => $conversation->id,
-            'whatsapp_account_id' => $conversation->whatsapp_account_id,
-            'user_id' => null,
-            'direction' => MessageDirection::Inbound,
-            'type' => $payload['type'] ?? MessageType::Text,
-            'body' => $payload['body'] ?? null,
-            'whatsapp_message_id' => $payload['whatsapp_message_id'] ?? null,
-            'status' => MessageStatus::Delivered,
-            'metadata' => $payload['metadata'] ?? null,
-            'sent_at' => $payload['sent_at'] ?? now(),
-        ]);
+        $whatsappMessageId = $payload['whatsapp_message_id'] ?? null;
+
+        if ($whatsappMessageId) {
+            $existing = Message::withoutGlobalScopes()
+                ->where('whatsapp_message_id', $whatsappMessageId)
+                ->first();
+
+            if ($existing) {
+                return $existing;
+            }
+        }
+
+        try {
+            $message = Message::withoutGlobalScopes()->create([
+                'company_id' => $conversation->company_id,
+                'conversation_id' => $conversation->id,
+                'whatsapp_account_id' => $conversation->whatsapp_account_id,
+                'user_id' => null,
+                'direction' => MessageDirection::Inbound,
+                'type' => $payload['type'] ?? MessageType::Text,
+                'body' => $payload['body'] ?? null,
+                'whatsapp_message_id' => $whatsappMessageId,
+                'status' => MessageStatus::Delivered,
+                'metadata' => $payload['metadata'] ?? null,
+                'sent_at' => $payload['sent_at'] ?? now(),
+            ]);
+        } catch (QueryException $exception) {
+            if (! $whatsappMessageId) {
+                throw $exception;
+            }
+
+            $existing = Message::withoutGlobalScopes()
+                ->where('whatsapp_message_id', $whatsappMessageId)
+                ->first();
+
+            if ($existing) {
+                return $existing;
+            }
+
+            throw $exception;
+        }
 
         $this->touchConversation($conversation, $message, incrementUnread: true);
         $this->notifyInbound($conversation->fresh(['customer', 'assignedUser']), $message);
@@ -148,9 +177,11 @@ class MessageService
         User::query()
             ->where('company_id', $conversation->company_id)
             ->where('is_active', true)
-            ->get()
-            ->filter(fn (User $user) => $user->can(Permissions::CONVERSATIONS_VIEW_ALL))
-            ->each(fn (User $user) => $user->notify(new NewMessageNotification($conversation, $message)));
+            ->chunkById(100, function ($users) use ($conversation, $message): void {
+                $users
+                    ->filter(fn (User $user) => $user->can(Permissions::CONVERSATIONS_VIEW_ALL))
+                    ->each(fn (User $user) => $user->notify(new NewMessageNotification($conversation, $message)));
+            });
     }
 
     protected function extensionFromMime(string $mime): string
