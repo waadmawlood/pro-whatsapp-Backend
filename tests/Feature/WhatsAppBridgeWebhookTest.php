@@ -128,6 +128,34 @@ class WhatsAppBridgeWebhookTest extends TestCase
         $this->assertSame('group', $message->metadata['chat_type']);
     }
 
+    public function test_inbound_group_message_accepts_group_id_when_remote_jid_is_missing(): void
+    {
+        config(['whatsapp.bridge.secret' => 'bridge-secret']);
+
+        $account = WhatsAppAccount::factory()->create([
+            'company_id' => $this->company->id,
+            'connection_type' => WhatsAppConnectionType::Web,
+        ]);
+
+        $this->withHeaders(['X-Bridge-Secret' => 'bridge-secret'])
+            ->postJson('/api/v1/webhooks/whatsapp-bridge/'.$account->id.'/message', [
+                'whatsapp_message_id' => 'bridge-group-002',
+                'chat_type' => 'group',
+                'group_id' => '120363402028185588',
+                'from' => '9647713960790',
+                'group_subject' => 'Super Speed Team',
+                'type' => 'text',
+                'body' => 'رسالة المجموعة',
+            ])
+            ->assertOk();
+
+        $this->assertDatabaseHas('customers', [
+            'whatsapp_number' => '120363402028185588',
+            'whatsapp_jid' => '120363402028185588@g.us',
+            'chat_type' => 'group',
+        ]);
+    }
+
     public function test_admin_can_create_web_account_and_connect_bridge(): void
     {
         config([
@@ -147,10 +175,10 @@ class WhatsAppBridgeWebhookTest extends TestCase
         $this->actingAsUser($admin);
 
         $response = $this->postJson('/api/v1/whatsapp-accounts', [
-                'name' => 'Main WhatsApp',
-                'connection_type' => 'web',
-                'is_default' => true,
-            ])
+            'name' => 'Main WhatsApp',
+            'connection_type' => 'web',
+            'is_default' => true,
+        ])
             ->assertCreated();
 
         $accountId = $response->json('data.id');

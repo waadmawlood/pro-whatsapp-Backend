@@ -38,4 +38,22 @@ class CustomerTest extends TestCase
         $this->deleteJson('/api/v1/customers/'.$create->json('data.id'))
             ->assertForbidden();
     }
+
+    public function test_customer_numbers_are_normalized_on_update(): void
+    {
+        $admin = $this->makeAdmin();
+        $this->actingAsUser($admin);
+
+        $customer = $this->postJson('/api/v1/customers', [
+            'name' => 'Omar',
+            'phone' => '966501111111',
+        ])->assertCreated()->json('data');
+
+        $this->patchJson('/api/v1/customers/'.$customer['id'], [
+            'phone' => '+966 50 222 3333',
+            'whatsapp_number' => '+966 50 222 3333',
+        ])->assertOk()
+            ->assertJsonPath('data.phone', '966502223333')
+            ->assertJsonPath('data.whatsapp_number', '966502223333');
+    }
 }

@@ -21,30 +21,35 @@ class ConversationService
 
     public function findOrCreateOpen(Customer $customer, WhatsAppAccount $account): Conversation
     {
-        $existing = Conversation::withoutGlobalScopes()
-            ->where('company_id', $customer->company_id)
-            ->where('customer_id', $customer->id)
-            ->where('whatsapp_account_id', $account->id)
-            ->where('status', ConversationStatus::Open)
-            ->latest('id')
-            ->first();
+        [$conversation, $created] = DB::transaction(function () use ($customer, $account): array {
+            Customer::withoutGlobalScopes()->whereKey($customer->id)->lockForUpdate()->firstOrFail();
 
-        if ($existing) {
-            return $existing;
+            $existing = Conversation::withoutGlobalScopes()
+                ->where('company_id', $customer->company_id)
+                ->where('customer_id', $customer->id)
+                ->where('whatsapp_account_id', $account->id)
+                ->where('status', ConversationStatus::Open)
+                ->latest('id')
+                ->first();
+
+            if ($existing) {
+                return [$existing, false];
+            }
+
+            return [Conversation::withoutGlobalScopes()->create([
+                'company_id' => $customer->company_id,
+                'whatsapp_account_id' => $account->id,
+                'customer_id' => $customer->id,
+                'assigned_user_id' => $customer->assigned_user_id,
+                'status' => ConversationStatus::Open,
+                'unread_count' => 0,
+            ]), true];
+        });
+
+        if ($created) {
+            $this->notifyNewConversation($conversation);
+            ConversationUpdated::dispatch($conversation->load(['customer.tags', 'assignedUser']), 'created');
         }
-
-        $conversation = Conversation::withoutGlobalScopes()->create([
-            'company_id' => $customer->company_id,
-            'whatsapp_account_id' => $account->id,
-            'customer_id' => $customer->id,
-            'assigned_user_id' => $customer->assigned_user_id,
-            'status' => ConversationStatus::Open,
-            'unread_count' => 0,
-        ]);
-
-        $this->notifyNewConversation($conversation);
-
-        ConversationUpdated::dispatch($conversation->load(['customer.tags', 'assignedUser']), 'created');
 
         return $conversation;
     }
@@ -182,8 +187,10 @@ class ConversationService
         User::query()
             ->where('company_id', $conversation->company_id)
             ->where('is_active', true)
-            ->get()
-            ->filter(fn (User $user) => $user->can(Permissions::CONVERSATIONS_VIEW_ALL))
-            ->each(fn (User $user) => $user->notify(new NewConversationNotification($conversation)));
+            ->chunkById(100, function ($users) use ($conversation): void {
+                $users
+                    ->filter(fn (User $user) => $user->can(Permissions::CONVERSATIONS_VIEW_ALL))
+                    ->each(fn (User $user) => $user->notify(new NewConversationNotification($conversation)));
+            });
     }
 }
